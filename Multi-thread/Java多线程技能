@@ -1,0 +1,83 @@
+同步和异步：
+同步指的是当所有的操作执行后才会返回信息，异步指的是发送A请求后，继续执行另外的操做，当A请求执行完之后返回信息。
+
+使用多线程就是在使用异步。在编译器里面执行代码的顺序，线程的调用是随机的。
+
+实现多线程变成的方式有两种：一种是继承Thread类，另外一种是实现Runnable接口。但是阅读相关源码会发现
+~~~~
+public class Thread implememts Runnable
+~~~~
+Thread类其实是实现了Runnable接口，他们之间具有多态的关系。综上，用两种方式创建的线程在工作时的性质是一样的。
+
+在编写多线程时，需要重写run方法，而在调用的时候时执行start方法。
+start方法调用时是通知“线程规划器”此线程处于就绪状态了，等待调用对象的run方法，进行执行。由于现成的调用具有随机性，所以执行start方法的顺序不代表线程启动的顺序
+
+由于java的继承机制是单继承，所以如果由于想创建的线程类已经有一个父类了，那么就只能选择实现Runnable接口。
+同时有一个构造方法
+~~~~
+public Thread(Runnable target, String name)
+~~~~
+中target是被调用run方法的对象，运用这种方法，可以实现一个Thread对象中的方法交由其他的线程进行调用，实现资源的共享。
+
+同时由于资源共享容易出现“非线程安全”问题，引入了锁的概念，例如synchronized关键字，可以在任意对象以及方法上加锁，同时这段岁上的代码叫做
+互斥区或者临界区。当其他的线程要访问这段代码的时候就会一直尝试拿到这把锁，直到拿到为止，同时是多个线程进行争抢。
+
+同时在Java中有一些Jvm对i--是分为3步的，取得i的原有的值，计算i-1，对i进行赋值，很容易出现“非线程安全”问题，尤其是执行println和i--联合输出的时候
+因为在println方法中是用synchronized关键字修饰的，但是i--是在println之前就行计算的，很容易出现先成安全问题。
+
+多线程中一些常用的方法
+1、currentThread() 返回代码段正在被那额哪个线程调用的信息。
+样例：
+~~~~
+public static void main(String[] args) {
+		CountOperate c = new CountOperate();
+		Thread t1 = new Thread(c);
+		t1.setName("A");
+		t1.start();
+	}
+  ~~~~
+~~~~
+public CountOperate() {
+		System.out.println("CountOperate---begin");
+		System.out.println("Thread.currentThread().getName()=" + Thread.currentThread().getName());
+		System.out.println("This.getName()=" + this.getName());
+		System.out.println("CountOperate---End");
+	}
+	@Override
+	public void run() {
+		System.out.println("run---begin");
+		System.out.println("Thread.currentThread().getName()=" + Thread.currentThread().getName());
+		System.out.println("This.getName()=" + this.getName());
+		System.out.println("run---End");
+	}
+  ~~~~
+结果：
+~~~~
+CountOperate---begin
+Thread.currentThread().getName()=main
+This.getName()=Thread-0
+CountOperate---End
+run---begin
+Thread.currentThread().getName()=A
+This.getName()=Thread-0
+run---End
+~~~~
+其中currentThread()返回的是当前的线程，而this是当前实例对象，由于调用的run方法是CountOperate对象的，所以两个this代表的对象是一样的，同时
+为什么是输出Threa-0，是由于未进行命名，所以是默认赋值。
+
+2、isAlive() 判断当前的线程是否是处于活动状态。也就是指线程并未终止
+3、sleep() 在指定的毫秒内让当前“正在执行的线程”休眠（暂停执行）,这个线程指的是this.其中currentThread返回的线程。
+4、getId() 取得线程的唯一标识
+
+停止线程
+停止线程是很重要的技术点，在Java中主要有以下3种方式用于终止正在运行的线程
+1、使用退出标志，使线程正常退出，也就是执行完毕之后
+2、使用stop方法，不推荐，因为会造成无法预料的后果
+3、使用interrupt方法中断线程
+
+使用interrupt方法来停止线程，但不能真正的停止，而是在线程中打了一个终止得标记。同时在Thread.java类里提供了两个方法
+this.interrupted():测试当前线程是否已经是中断状态；当前线程指的是运行this.interrupted()方法的线程。同时执行后具有将状态标志位清清除为false
+this.inInterrupted():测试线程是否已经是中断状态。不具有清除状态标志位的功能。
+
+要想使线程真正意义上停止，可以使用异常，当需要停止的时候抛出异常即可。在sleep状态下使用interrupt会进入到catch语句，从而达到停止的目的，但反过来就不会
+进入到catch语句
