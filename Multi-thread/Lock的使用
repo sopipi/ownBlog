@@ -1,0 +1,31 @@
+1、在jdk5中新增加了ReentrantLock类实现线程间的同步互斥，在使用上也比较灵活。
+
+2、主要用法如下
+~~~~
+Lock lock = new ReentrantLock();
+~~~~
+之后通过执行lock.lock()和lock.unlock();进行锁的释放以及添加。
+
+3、同时，线程间的通信，也可以通过Condition进行实现。
+~~~~
+Lock lock = new ReentrantLock();
+Condition condition = lock.newCondition();
+condition.await();
+condition.singal();       // 相当于notify
+condition.singalAll();    // 相当于notifyAll
+~~~~
+
+4、都需要先取到锁才可以执行线程间的通信，同时，是通过Condition对象来进行锁的拥有的
+
+5、公平锁：FIFO（先进先出） ； 非公平锁：随机性
+~~~~
+new ReentrantLock(false);不公平锁  true 为公平锁
+~~~~
+
+6、读写锁ReentrsntReadWriteLock类
+~~~~
+Lock lock = new ReentrantReadWriteLock();
+lock.readLock().lock();
+lock.writeLock().lock();
+~~~~
+写写互斥，读写互斥，写读互斥，读读共享

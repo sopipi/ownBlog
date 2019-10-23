@@ -1,0 +1,100 @@
+1、安装JDK
+新建文件夹
+mkdir /usr/java
+进入文件
+cd /usr/java
+下在安装包（详见网址：http://mirrors.linuxeye.com/jdk/md5sum.txt）
+wget http://mirrors.linuxeye.com/jdk/jdk-8u221-linux-x64.tar.gz
+查看是否下载成功
+ls
+解压
+tar xzf jdk-8u221-linux-x64.tar.gz -C /usr/java
+继续查看是否有新的文件生成
+ls
+配置环境变量
+vi /etc/profile
+在最后一行加入一下内容：(基于VIM编辑a进入编辑esc wq！退出)
+#set java environment
+export JAVA_HOME=/usr/java/jdk1.8.0_221
+export CLASSPATH=$JAVA_HOME/lib/tools.jar:$JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib
+export PATH=$JAVA_HOME/bin:$PATH
+加载新的文件
+source /etc/profile
+查看是否安装成功
+java -version
+
+2、安装tomcat
+创建文件夹
+mkdir /usr/tomcat
+进入文件
+cd /usr/tomcat
+下载文件（详见https://mirrors.aliyun.com/apache/tomcat/）
+wget https://mirrors.aliyun.com/apache/tomcat/tomcat-8/v8.5.47/bin/apache-tomcat-8.5.47.tar.gz
+查看文件
+ls
+解压文件
+tar xzf apache-tomcat-8.5.47.tar.gz -C /usr/tomcat
+进入配置文件
+cd apache-tomcat-8.5.47/conf
+（怕错的话可以备份一份）
+cp server.xml server.xml_bk
+修改配置文件，修改端口号
+vi server.xml
+找到8080 修改了自己想好的端口号，我的是8092
+依旧是基于vim进行操作，a进入编写，esc wq!退出
+
+配置环境变量
+vi /etc/profile
+
+在最后一行添加
+#set tomcat environment
+export TOMCAT_HOME=/usr/tomcat/apache-tomcat-8.5.47/bin
+export PATH=$TOMCAT_HOME/bin:$PATH
+重新运行配置文件
+source /etc/profile
+打开文件夹进行启动tomcat
+cd /usr/tomcat/apache-tomcat-8.5.47/bin
+启动：./startup.sh
+停止：./shutdown.sh
+验证是否安装成功：在浏览器中输入下列url
+http://（公网IP）:8092/
+将所有文件命令赋予权限（执行命令的时候可以去掉./）
+chmod +x *.sh
+之后执行命令的时候可以去掉./
+例如之前的启动命令可以直接是 startup.sh
+
+3、安装Mysql
+创建文件夹并进入
+mkdir /usr/mysql
+cd /usr/mysql
+如果是centos 7可以直接执行下列命令（查看版本：cd /etc和cat centos-release）
+wget http://dev.mysql.com/get/mysql80-community-release-el7-3.noarch.rpm
+或者自己从官网进行下载（http://dev.mysql.com/downloads/repo/yum/）
+添加mysql依赖（从本机目录安装软件包）
+yum -y localinstall mysql80-community-release-el7-3.noarch.rpm
+下载好之后自己直接进行安装
+yum install mysql-community-server
+
+3.1修改mysql配置文件
+修改字符集
+在 vim /etc/mysql/my.cnf   修改配置文件
+在[mysqld] 下添加如下配置
+character-set-server=utf8
+init_connect='SET NAMES utf8'
+
+启动mysql
+service mysqld start
+设置开机自启动
+systemctl enable mysqld
+systemctl daemon-reload
+查看mysql状态
+service mysqld status
+查看第一次随机生成的密码
+grep 'temporary password' /var/log/mysqld.log
+登陆mysql
+mysql -h localhost -u root -p
+密码是上一步随机生成的密码
+设置临时密码进入到命令行
+ALTER USER 'root'@'localhost' IDENTIFIED BY 'ITitcats1213@';
+设置root用户可以在本地访问的密码
+GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' IDENTIFIED BY 'Root.root.123';
