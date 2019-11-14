@@ -1,0 +1,9 @@
+1、jvm：Java Virtual Machine
+   jre：JVM+基础类库
+   JDK：JVM+基础类库+编译工具
+   开发JavaSE程序：JDK+IDE工具
+   开发JavaEE程序：JDK+应用服务器+IDE工具
+2、Java Class ->Class Loader ->jvm内存结构(Method Area方法区、Heap堆、JVM Stacks虚拟机栈、PC Register程序计数器、Native Method Stacks本地方法栈) ->执行引擎(Interpreter解释器、JIT Compiler即使编译器、GC垃圾回收) ->本地方法接口
+3、Java程序运行过程
+   java源代码->二进制字节码文件(JVM指令)->解释器->机器码->CPU
+   
