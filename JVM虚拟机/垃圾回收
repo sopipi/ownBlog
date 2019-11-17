@@ -72,41 +72,41 @@
                   -XX:ParallelGCThreads=n 设置线程数
                    Parallel运行在新生代，采用复制算法； ParallelOld运行在老年代，采用标记——整理算法
      垃圾回收器会开启多个回收线程，垃圾回收时，其他的线程需要到达安全点后进行等待，垃圾回收线程数量和自己的cpu核数相关
-
----------------------------------------------------24----------------------------------------------------
    3. 响应时间优先垃圾回收器
      多线程垃圾回收器
      使用场景：堆内存较大，多核cpu，运行在服务器上
      尽可能让单次 STW 的时间最短 0.1 0.1 0.1 0.1 0.1 = 0.5
-     -XX:+UseConcMarkSweepGC ~ -XX:+UseParNewGC ~ SerialOld
-     -XX:ParallelGCThreads=n ~ -XX:ConcGCThreads=threads
-     -XX:CMSInitiatingOccupancyFraction=percent
-     -XX:+CMSScavengeBeforeRemark
-   4.G1
+     过程：首先进行到第一个安全点之后用户线程停止，启动垃圾回收线程进行初始标记，之后所有线程继续运行，启动垃圾回收线程进行并发标记，之后进行是重新标记，最后并发垃圾回收
+     -XX:+UseConcMarkSweepGC (老年代)~ -XX:+UseParNewGC(新生代) ~ SerialOld(并行执行失败，会退化成这个垃圾回收器)    （Conc：concurrent并发，指的是垃圾回收线程和用户线程一起继续运行，可以抢占cpu）
+     -XX:ParallelGCThreads=n ~ -XX:ConcGCThreads=threads    并发标记线程数，多采用1/4cpu的数量
+     -XX:CMSInitiatingOccupancyFraction=percent    控制何时进行垃圾回收的内存占用比例，预留内存给浮动垃圾
+     -XX:+CMSScavengeBeforeRemark  进行重新标记的时候先进行一次新生代的垃圾回收，减少存活哦对象
+   4.G1  Garbage First
      定义：Garbage First
       2004 论文发布
       2009 JDK 6u14 体验
       2012 JDK 7u4 官方支持
-      2017 JDK 9 默认
-     适用场景
+      2017 JDK 9 默认 CMS被取代
+     适用场景：
       同时注重吞吐量（Throughput）和低延迟（Low latency），默认的暂停目标是 200 ms
       超大堆内存，会将堆划分为多个大小相等的 Region
-      整体上是 标记+整理 算法，两个区域之间是 复制 算法
+      整体上是 标记+整理 算法，两个区域之间是复制算法
      相关 JVM 参数
      -XX:+UseG1GC
-     -XX:G1HeapRegionSize=size
+     -XX:G1HeapRegionSize=size  设置区域大小
      -XX:MaxGCPauseMillis=time
-    1) G1 垃圾回收阶段
+    1) G1 垃圾回收阶段 分为2) 3) 4) 并进行循环执行
     2) Young Collection
        会 STW
-    3) Young Collection + CM
+    3) Young Collection + CM 新生代的垃圾回收以及并发标记阶段
        在 Young GC 时会进行 GC Root 的初始标记
        老年代占用堆空间比例达到阈值时，进行并发标记（不会 STW），由下面的 JVM 参数决定
-    4) Mixed Collection
+         -XX:InitiatingHeapOccupancyPercent = percent (默认45%)
+    4) Mixed Collection 混合收集
        会对 E、S、O 进行全面垃圾回收
          最终标记（Remark）会 STW
          拷贝存活（Evacuation）会 STW
-       -XX:MaxGCPauseMillis=ms
+       -XX:MaxGCPauseMillis=ms 最大暂停时间
     5) Full GC
        SerialGC
          新生代内存不足发生的垃圾收集 - minor gc
@@ -116,17 +116,17 @@
          老年代内存不足发生的垃圾收集 - full gc
        CMS
          新生代内存不足发生的垃圾收集 - minor gc
-         老年代内存不足
+         老年代内存不足 看并发是否失败
        G1
          新生代内存不足发生的垃圾收集 - minor gc
-         老年代内存不足
+         老年代内存不足 看垃圾产生速度是否比回收速度快
     6) Young Collection 跨代引用
        新生代回收的跨代引用（老年代引用新生代）问题
-       卡表与 Remembered Set
-       在引用变更时通过 post-write barrier + dirty card queue
+       查找根对象的时候采用卡表技术与Remembered Set  记录老年代进行关联新生代对象的时候，将卡表记录为脏卡
+       在引用变更时通过 post-write barrier(写屏障，对象发生变换时更新脏卡，并且是异步执行的) + dirty card queue
        concurrent refinement threads 更新 Remembered Set
-    7) Remark
-       pre-write barrier + satb_mark_queue
+    7) Remark 重新标记阶段
+       pre-write barrier (写屏障，对象引用时发生的时候，JVM进行添加，并加入到队列中，防止误判)+ satb_mark_queue
     8) JDK 8u20 字符串去重
        优点：节省大量内存
        缺点：略微多占用了 cpu 时间，新生代回收时间略微增加
@@ -141,24 +141,26 @@
          而字符串去重关注的是 char[]
          在 JVM 内部，使用了不同的字符串表
     9) JDK 8u40 并发标记类卸载
-       所有对象都经过并发标记后，就能知道哪些类不再被使用，当一个类加载器的所有类都不再使用，则卸 载它所加载的所有类 -XX:+ClassUnloadingWithConcurrentMark 默认启用
-    10) JDK 8u60 回收巨型对象
+       所有对象都经过并发标记后，就能知道哪些类不再被使用，当一个类加载器的所有类都不再使用，则卸载它所加载的所有类 -XX:+ClassUnloadingWithConcurrentMark 默认启用
+    10) JDK 8u60 回收巨型对象( 和 E,S,O一样称为巨型对象区H)
        一个对象大于 region 的一半时，称之为巨型对象
        G1 不会对巨型对象进行拷贝
        回收时被优先考虑
-       G1 会跟踪老年代所有 incoming 引用，这样老年代 incoming 引用为0 的巨型对象就可以在新生 代垃圾回收时处理掉
+       G1 会跟踪老年代所有 incoming 引用（在老年代卡表进行了引用），这样老年代 incoming 引用为0 的巨型对象就可以在新生 代垃圾回收时处理掉
     11) JDK 9 并发标记起始时间的调整
-       并发标记必须在堆空间占满前完成，否则退化为 FullGC
-       JDK 9 之前需要使用 -XX:InitiatingHeapOccupancyPercent
-       JDK 9 可以动态调整
+       并发标记必须在堆空间占满前完成，否则退化为 Full GC
+       JDK 9 之前需要使用 -XX:InitiatingHeapOccupancyPercent 设计阈值
+       JDK 9 可以动态调整阈值，进行并发垃圾回收
          -XX:InitiatingHeapOccupancyPercent 用来设置初始值
          进行数据采样并动态调整
          总会添加一个安全的空档空间
     12) JDK 9 更高效的回收
-       250+增强
-       180+bug修复
-       https://docs.oracle.com/en/java/javase/12/gctuning
+       250+项增强
+       180+项bug修复
+       Oracle官方文档：https://docs.oracle.com/en/java/javase/12/gctuning
 五、垃圾回收调优
+       预备知识
+         掌握GC相关的VM参数，会基本的空间调整， 掌握相关的工具， 调优根环境、应用有关，没有放之四海而皆准则的法则
     1、调优领域
        内存
        锁竞争
@@ -167,9 +169,9 @@
        io
     2、确定目标
       【低延迟】还是【高吞吐量】，选择合适的回收器
-      CMS，G1，ZGC
-      ParallelGC
-      Zing
+      CMS，G1，ZGC  (低延迟)
+      ParallelGC    (高吞吐量)
+      Zing（虚拟机）
     3、最快的 GC
        答案是不发生 GC
        查看 FullGC 前后的内存占用，考虑下面几个问题
@@ -180,24 +182,34 @@
            对象大小 16 Integer 24 int 4
          是否存在内存泄漏？
            static Map map =
+          长时间存活对象使用以下类进行实现：
            软
            弱
            第三方缓存实现
     4、新生代调优
        新生代的特点
          所有的 new 操作的内存分配非常廉价
-           TLAB thread-local allocation buﬀer
+           TLAB thread-local allocation buﬀer 每一个线程都会进行分一部分区域
          死亡对象的回收代价是零
          大部分对象用过即死
          Minor GC 的时间远远低于 Full GC
+         占用的内存不是越大越好 1/2 ~1/4
+         理想情况：新生代能容纳所有[并发量*(请求-响应)]的数据
+                  幸存区大到能保留[当前活跃对象+需要晋升对象]
+                  晋升阀值配置得当，让长时间存活对象尽快晋升
+                  -XX:MaxTenuringThreshold-threshold
+                  -XX:+PrintTenuringDistribution
     5、老年代调优
-        以 CMS 为例
-          CMS 的老年代内存越大越好
-          先尝试不做调优，如果没有 Full GC 那么已经...，否则先尝试调优新生代
+        以CMS为例
+          CMS的老年代内存越大越好
+          先尝试不做调优，如果没有 Full GC 那么已经很快了，否则先尝试调优新生代
           观察发生 Full GC 时老年代内存占用，将老年代内存预设调大 1/4 ~ 1/3
-            -XX:CMSInitiatingOccupancyFraction=percent
+            -XX:CMSInitiatingOccupancyFraction=percent 控制老年代垃圾回收的阀值，当达到该值时进行垃圾回收
     6、案例
        案例1 Full GC 和 Minor GC频繁
+            新生代幸存区设置过小，以及对象晋升阈值
        案例2 请求高峰期发生 Full GC，单次暂停时间特别长 （CMS）
+            初始标记，并发标记，重新标记，并发清理   主要发生在重新标记，因为要全部扫描，可以在重新标记之前进行一次新生代垃圾回收
        案例3 老年代充裕情况下，发生 Full GC （CMS jdk1.7）
+            jdk版本不一样，底端实现不一样。
  
