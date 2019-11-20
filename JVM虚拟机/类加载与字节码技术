@@ -406,4 +406,393 @@
         <cinit>()V 方法会在类加载的初始化阶段被调用
       2）<init>()V
         编译器会按从上至下的顺序，收集所有 {} 代码块和成员变量赋值的代码，形成新的构造方法，但原始构造方法内的代码总是在后
---------------------------------23-----------------------
+    2.9 方法调用
+      看一下几种不同的方法调用对应的字节码指令
+        new 是创建【对象】，给对象分配堆内存，执行成功会将【对象引用】压入操作数栈
+        dup 是赋值操作数栈栈顶的内容，本例即为【对象引用】，为什么需要两份引用呢，
+          一个是要配 合 invokespecial 调用该对象的构造方法 "<init>":()V （会消耗掉栈顶一个引用），
+          另一个要 配合 astore_1 赋值给局部变量
+        最终方法（ﬁnal），私有方法（private），构造方法都是由 invokespecial 指令来调用，属于静 态绑定
+        普通成员方法是由 invokevirtual 调用，属于动态绑定，即支持多态
+        成员方法与静态方法调用的另一个区别是，执行方法前是否需要【对象引用】
+        通过【对象引用】调用一个静态方法，可以看到在调用 invokestatic 之前执行了 pop 指令，把【对象引用】从操作数栈弹掉了
+        还有一个执行 invokespecial 的情况是通过 super 调用父类方法
+    2.10 多态的原理
+      当执行 invokevirtual 指令时，
+        1. 先通过栈帧中的对象引用找到对象
+        2. 分析对象头，找到对象的实际 Class
+        3. Class 结构中有 vtable，它在类加载的链接阶段就已经根据方法的重写规则生成好了
+        4. 查表得到方法的具体地址
+        5. 执行方法的字节码
+
+      工具：HSDB工具
+        进入 JDK 安装目录，执行命令  java -cp ./lib/sa-jdi.jar sun.jvm.hotspot.HSDB
+        进入图形界面 attach 进程 id
+        打开 Tools -> Find Object By Query 输入语句    select 实例 from 类的详细位置 实例 点击 Execute 执行
+        点击超链接可以看到对象的内存结构，此对象没有任何属性，因此只有对象头的 16 字节，前 8 字节是 MarkWord，对象的hash信息，后 8 字节就是对象的 Class 指针（类型指针）
+        查看类的 vtable(虚方法表)  方法：Alt+R 进入 Inspector 工具，输入刚才的 Class 内存地址  或者 Tools -> Class Browser 输入 Dog 查找，可以得到相同的结果
+
+      2.11 异常处理
+        try-catch
+          ~~~~局部异常表
+           Exception table:        
+           from    to  target type  
+            2     5     8   Class java/lang/Exception
+          ~~~~
+          可以看到多出来一个 Exception table 的结构，[from, to) 是前闭后开的检测范围，一旦这个范围 内的字节码执行出现异常，则通过 type 匹配异常类型，如果一致，进入 target 所指示行号
+          8 行的字节码指令 astore_2 是将异常对象引用存入局部变量表的 slot(槽位) 2 位置
+        多个 single-catch 块的情况
+          ~~~~
+           Exception table:        
+           from    to  target type            
+            2     5     8   Class java/lang/ArithmeticException            
+            2     5    15   Class java/lang/NullPointerException            
+            2     5    22   Class java/lang/Exception
+          ~~~~
+          因为异常出现时，只能进入 Exception table 中一个分支，所以局部变量表 slot 2 位置被共用
+        ﬁnally
+          可以看到 ﬁnally 中的代码被复制了 3 份，分别放入 try 流程，catch 流程以及 catch 剩余的异常类型流程
+      2.12 练习 - ﬁnally 面试题 -------ﬁnally 出现了 return
+        ~~~~//源码
+        public class Demo3_12_2 {  
+         public static void main(String[] args) {    
+            int result = test();      
+            System.out.println(result);  
+          }
+          public static int test() {        
+            try {            
+            return 10;      
+            } finally {            
+            return 20;    
+             }  
+            }
+          }
+        ~~~~
+        ~~~~//字节码
+        stack=1, locals=2, args_size=0        
+        0: bipush        10    // <- 10 放入栈顶
+        5: ireturn             // 返回栈顶 int(20)        
+        6: astore_1            // catch any -> slot 1        
+        7: bipush        20    // <- 20 放入栈顶        
+        9: ireturn             // 返回栈顶 int(20)      
+        Exception table:        
+         from    to  target type          
+           0     3     6   any
+        ~~~~
+         由于 ﬁnally 中的 ireturn 被插入了所有可能的流程，因此返回结果肯定以 ﬁnally 的为准
+         至于字节码中第 2 行，似乎没啥用，且留个伏笔，看下个例子
+         跟上例中的 ﬁnally 相比，发现没有 athrow 了，这告诉我们：如果在 ﬁnally 中出现了 return，会 吞掉异常
+
+         面试题二： ﬁnally 对返回值影响
+         ~~~~
+           public class Demo3_12_2 {    
+           public static void main(String[] args) {        
+           int result = test();        
+           System.out.println(result);  
+           }
+           public static int test() {        
+           int i = 10;        
+           try {            
+           return i;      
+           } finally {            
+           i = 20;      
+           }  
+           } }
+         ~~~~
+         字节码文件
+         ~~~~
+          Code:      
+         stack=1, locals=3, args_size=0        
+         0: bipush        10    // <- 10 放入栈顶        
+         2: istore_0            // 10 -> i        
+         3: iload_0             // <- i(10)        
+         4: istore_1            // 10 -> slot 1，暂存至 slot 1，目的是为了固定返回值        
+         5: bipush        20    // <- 20 放入栈顶        
+         7: istore_0            // 20 -> i        
+         8: iload_1             // <- slot 1(10) 载入 slot 1 暂存的值        
+         9: ireturn             // 返回栈顶的 int(10)        
+         10: astore_2        
+         11: bipush        20        
+         13: istore_0        
+         14: aload_2        
+         15: athrow      
+         Exception table:    
+             from    to  target type      
+              3     5    10   any
+         ~~~~
+    2.13 synchronized
+      ~~~~
+      public class Demo3_13 {
+      public static void main(String[] args) {        
+      Object lock = new Object();      
+      synchronized (lock) {            
+      System.out.println("ok");      
+      }    }     }
+      ~~~~
+      字节码文件
+      ~~~~
+       stack=2, locals=4, args_size=1        
+      0: new           #2        // new Object        
+      3: dup                     //复制对象的引用
+      4: invokespecial #1        // invokespecial <init>:()V        
+      7: astore_1                // lock引用 -> lock        
+      8: aload_1                 // <- lock （synchronized开始）        
+      9: dup        
+      10: astore_2                // lock引用 -> slot 2        
+      11: monitorenter            // monitorenter(lock引用) （加锁）       
+      12: getstatic     #3        // <- System.out        
+      15: ldc           #4        // <- "ok"
+      17: invokevirtual #5        // invokevirtual println: (Ljava/lang/String;)V        
+      20: aload_2                 // <- slot 2(lock引用)        
+      21: monitorexit             // monitorexit(lock引用)    （解锁）    
+      22: goto          30        
+      25: astore_3                // any -> slot 3        
+      26: aload_2                 // <- slot 2(lock引用)        
+      27: monitorexit             // monitorexit(lock引用)        
+      28: aload_3        29: athrow        
+      30: return      Exception table:        
+       from    to  target type
+         12    22    25   any          
+         25    28    25   any             
+      ~~~~
+      注意：
+         方法级别的 synchronized 不会在字节码指令中有所体现
+3. 编译期处理
+    所谓的 语法糖 ，其实就是指 java 编译器把 *.java 源码编译为 *.class 字节码的过程中，自动生成 和转换的一些代码，主要是为了减轻程序员的负担，算是 java 编译器给我们的一个额外福利（给糖吃 嘛）
+    注意，以下代码的分析，借助了 javap 工具，idea 的反编译功能，idea 插件 jclasslib 等工具。另外， 编译器转换的结果直接就是 class 字节码，只是为了便于阅读，给出了 几乎等价 的 java 源码方式，并 不是编译器还会转换出中间的 java 源码，切记。
+    3.1 默认构造
+    3.2 自动拆装箱
+      ~~~~
+      public class Candy2 {
+         public static void main(String[] args) {      
+         Integer x = 1;      
+         int y = x;  
+          } }
+      ~~~~
+      这段代码在 JDK 5 之前是无法编译通过的，必须改写为 代码片段2 :
+      ~~~~
+      public class Candy2 {
+             public static void main(String[] args) {      
+             Integer x = Integer.valueOf(1);  
+             int y = x.intValue();    }
+      ~~~~
+      显然之前版本的代码太麻烦了，需要在基本类型和包装类型之间来回转换（尤其是集合类中操作的都是 包装类型），因此这些转换的事情在JDK 5 以后都由编译器在编译阶段完成。
+      即 代码片段1 都会在编 译阶段被转换为 代码片段2
+
+      3.3 泛型集合取值
+        泛型也是在 JDK 5 开始加入的特性，但 java 在编译泛型代码后会执行 泛型擦除 的动作，即泛型信息 在编译为字节码之后就丢失了，实际的类型都当做了 Object 类型来处理：
+        ~~~~
+        public class Candy3 {  
+          public static void main(String[] args) {    
+          List<Integer> list = new ArrayList<>();        
+          list.add(10); // 实际调用的是 List.add(Object e)        
+          Integer x = list.get(0); // 实际调用的是 Object obj = List.get(int index);  
+           } }
+        ~~~~
+        也就是取值的时候必须在重新进行类型的转换，就是在字节码文件当中都会当作Object
+        擦除的是字节码上的泛型信息，但可以看到 LocalVariableTypeTable 仍然保留了方法参数泛型的信息
+        可以通过反射进行获取
+        ~~~~
+        public Set<Integer> test(List<String> list, Map<Integer, Object> map) { }
+        ~~~~
+        根据反射获取参数的泛型信息 但只能获取到方法上的
+        ~~~~
+        Method test = Candy3.class.getMethod("test", List.class, Map.class);
+        Type[] types = test.getGenericParameterTypes();
+        for (Type type : types) {    
+        if (type instanceof ParameterizedType) {        
+        ParameterizedType parameterizedType = (ParameterizedType) type;        
+        System.out.println("原始类型 - " + parameterizedType.getRawType());        
+        Type[] arguments = parameterizedType.getActualTypeArguments();        
+        for (int i = 0; i < arguments.length; i++) {            
+        System.out.printf("泛型参数[%d] - %s\n", i, arguments[i]);      
+        }    }
+        ~~~~
+        输出结果
+        ~~~~
+        原始类型 - interface java.util.List
+        泛型参数[0] - class java.lang.String
+        原始类型 - interface java.util.Map
+        泛型参数[0] - class java.lang.Integer
+        泛型参数[1] - class java.lang.Object
+        ~~~~
+    3.4 可变参数
+      可变参数也是 JDK 5 开始加入的新特性： 例如：
+      ~~~~
+      public class Candy4 {    
+      public static void foo(String... args) {        
+      String[] array = args; // 直接赋值        
+      System.out.println(array);  
+      }    
+      public static void main(String[] args) {        
+      foo("hello", "world");  
+      } }
+      ~~~~
+      可变参数 String... args 其实是一个 String[] args ，从代码中的赋值语句中就可以看出来。 同 样 java 编译器会在编译期间将上述代码变换为：
+      ~~~~
+      public class Candy4 {    
+      public static void foo(String[] args) {        
+      String[] array = args; // 直接赋值        
+      System.out.println(array);  
+      }    
+      public static void main(String[] args) {        
+      foo(new String[]{"hello", "world"});  
+      } }
+      ~~~~
+      注意：
+         如果调用了 foo() 则等价代码为 foo(new String[]{}) ，创建了一个空的数组，而不会 传递 null 进去
+    3.5 foreach 循环
+      ~~~~
+       for (int e : array) {          
+       System.out.println(e);    
+         }
+      ~~~~
+      转换为：
+      ~~~~
+       for(int i = 0; i < array.length; ++i) {          
+       int e = array[i];        
+         System.out.println(e);      
+        }
+      ~~~~
+      而集合的循环：
+      ~~~~
+         List<Integer> list = Arrays.asList(1,2,3,4,5);      
+        for (Integer i : list) {      
+            System.out.println(i);    
+           }
+      ~~~~
+      实际上是
+      ~~~~
+        List<Integer> list = Arrays.asList(1, 2, 3, 4, 5);        
+       Iterator iter = list.iterator();        
+       while(iter.hasNext()) {            
+       Integer e = (Integer)iter.next();            
+       System.out.println(e);      
+        }    }
+      ~~~~
+        注意：foreach 循环写法，能够配合数组，以及所有实现了 Iterable 接口的集合类一起使用，其 中 Iterable 用来获取集合的迭代器（ Iterator ）
+    3.6 switch 字符串
+        从 JDK 7 开始，switch 可以作用于字符串和枚举类，这个功能其实也是语法糖。
+          可以看到，执行了两遍 switch，第一遍是根据字符串的 hashCode 和 equals 将字符串的转换为相应 byte 类型，第二遍才是利用 byte 执行进行比较。
+          为什么第一遍时必须既比较 hashCode，又利用 equals 比较呢？hashCode 是为了提高效率，减少可 能的比较；而 equals 是为了防止 hashCode 冲突，
+    3.7 switch 枚举
+      switch 枚举的例子，原始代码：
+      ~~~~
+      enum Sex {    MALE, FEMALE }
+
+      public class Candy7 {    
+      public static void foo(Sex sex) {      
+       switch (sex) {            
+      case MALE:                System.out.println("男"); break;          
+      case FEMALE:                System.out.println("女"); break;      
+      }    } }
+      ~~~~
+      转换后的代码
+      ~~~~
+      public class Candy7 {    /**     
+       * 定义一个合成类（仅 jvm 使用，对我们不可见）    
+       * 用来映射枚举的 ordinal 与数组元素的关系    
+       * 枚举的 ordinal 表示枚举对象的序号，从 0 开始    
+       * 即 MALE 的 ordinal()=0，FEMALE 的 ordinal()=1    
+       */        
+       static class $MAP {        // 数组大小即为枚举元素个数，里面存储case用来对比的数字      
+        static int[] map = new int[2];        
+       static {            
+       map[Sex.MALE.ordinal()] = 1;          
+        map[Sex.FEMALE.ordinal()] = 2;      
+        }  
+        }
+        public static void foo(Sex sex) {        
+        int x = $MAP.map[sex.ordinal()];        
+        switch (x) {            
+        case 1:   System.out.println("男");  break;            
+        case 2:   System.out.println("女");  break;      
+        }    } }
+      ~~~~
+      3.8 枚举类
+        JDK 7 新增了枚举类，以前面的性别枚举为例：
+        转换后为
+        ~~~~
+        public final class Sex extends Enum<Sex> {    
+        public static final Sex MALE;    
+        public static final Sex FEMALE;    
+        private static final Sex[] $VALUES;
+        static {        
+        MALE = new Sex("MALE", 0);        
+        FEMALE = new Sex("FEMALE", 1);        
+        $VALUES = new Sex[]{MALE, FEMALE};    }
+        private Sex(String name, int ordinal) {        super(name, ordinal);    }
+        public static Sex[] values() {        return $VALUES.clone();    }
+        public static Sex valueOf(String name) {        return Enum.valueOf(Sex.class, name);    }
+        ~~~~
+      3.9 try-with-resources
+        JDK 7 开始新增了对需要关闭的资源处理的特殊语法 try-with-resources
+        其中资源对象需要实现 AutoCloseable 接口，例如 InputStream 、 OutputStream 、 Connection 、 Statement 、 ResultSet 等接口都实现了 AutoCloseable ，使用 try-withresources 可以不用写 finally 语句块，编译器会帮助生成关闭资源代码，例如：
+        ~~~~
+        public class Candy9 {
+            public static void main(String[] args) {
+                 try(InputStream is = new FileInputStream("d:\\1.txt")) {
+                      System.out.println(is);
+                   } catch (IOException e) {
+                       e.printStackTrace();
+                    }    } }
+        ~~~~
+        转换为
+        ~~~~
+        public class Candy9 {    
+        public Candy9() {    }
+        public static void main(String[] args) {        
+        try {            
+        InputStream is = new FileInputStream("d:\\1.txt");
+        hrowable t = null;  
+         try {                
+        System.out.println(is);          
+        } catch (Throwable e1) {                
+        // t 是我们代码出现的异常                
+        t = e1;                
+        throw e1;          
+        } finally {                
+        // 判断了资源不为空                
+        if (is != null) {                    
+        // 如果我们代码有异常                    
+        if (t != null) {                      
+         try {                            
+        is.close();                      
+        } catch (Throwable e2) {                          
+         // 如果 close 出现异常，作为被压制异常添加                          
+         t.addSuppressed(e2);                      
+         }                  
+          } else {                        
+          // 如果我们代码没有异常，close 出现的异常就是后 catch 块中的 e                       
+           is.close();                  
+           }              
+           }          
+           }      
+           } catch (IOException e) {             
+           e.printStackTrace();      
+           }    } }
+        ~~~~
+        为什么要设计一个 addSuppressed(Throwable e) （添加被压制异常）的方法呢？
+        是为了防止异常信 息的丢失（想想 try-with-resources 生成的 ﬁanlly 中如果抛出了异常）：
+      3.10 方法重写时的桥接方法
+        我们都知道，方法重写时对返回值分两种情况：
+         父子类的返回值完全一致
+         子类返回值可以是父类返回值的子类
+         例如 ：
+         ~~~~
+         class A {    public Number m() {        return 1;    } }
+         class B extends A {    @Override  
+          // 子类 m 方法的返回值是 Integer 是父类 m 方法返回值 Number 的子类   
+          public Integer m() {        return 2;    } }
+         ~~~~
+         java编译器编译后
+         ~~~~class B extends A {    public Integer m() {        return 2;    }  
+          // 此方法才是真正重写了父类 public Number m() 方法  
+          public synthetic bridge Number m() {    
+             // 调用 public Integer m()      
+            return m();    } }
+         ~~~~
+         其中桥接方法比较特殊，仅对 java 虚拟机可见，并且与原来的 public Integer m() 没有命名冲突
+      3.11 匿名内部类
+        注意 这同时解释了为什么匿名内部类引用局部变量时，局部变量必须是 ﬁnal 的：因为在创建 Candy11$1 对象时，将 x 的值赋值给了 Candy11$1 对象的 val 属性， 不应该再发生变了，如果变，那么 x 属性没有机会再跟着一起变化
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~47~~~~~~~~~~~~~~~~~~
