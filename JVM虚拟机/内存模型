@@ -1,0 +1,18 @@
+内存模型
+    1. java 内存模型
+      很多人将【java 内存结构】与【java 内存模型】傻傻分不清，【java 内存模型】是 Java Memory Model（JMM）的意思。
+      关于它的权威解释，请参考 https://download.oracle.com/otn-pub/jcp/memory_model-1.0-pfdspec-oth-JSpec/memory_model-1_0-pfd-spec.pdf? AuthParam=1562811549_4d4994cbd5b59d964cd2907ea22ca08b
+      简单的说，JMM 定义了一套在多线程读写共享数据时（成员变量、数组）时，对数据的可见性、有序 性、和原子性的规则和保障
+      1.原子性
+      ~~~~
+      synchronized( 对象 ) {    要作为原子操作代码 }
+      ~~~~
+      2.可见性
+      volatile（易变关键字）   它可以用来修饰成员变量和静态成员变量，他可以避免线程从自己的工作缓存（高速缓存）中查找变量的值，必须到 主存中获取它的值，线程操作 volatile 变量都是直接操作主存
+      注意
+        synchronized 语句块既可以保证代码块的原子性，也同时保证代码块内变量的可见性。但 缺点是synchronized是属于重量级操作，性能相对更低
+      3. 有序性
+        这种特性称之为『指令重排』，多线程下『指令重排』会影响正确性，例如著名的 double-checked locking 模式实现单例
+        这种现象叫做指令重排，是 JIT 编译器在运行时的一些优化，这个现象需要通过大量测试才能复现：
+        借助 java 并发压测工具 jcstress https://wiki.openjdk.java.net/display/CodeTools/jcstress
+        volatile 修饰的变量，可以禁用指令重排
